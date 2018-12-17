@@ -2,6 +2,10 @@
 
 import * as vscode from 'vscode';
 import { isNullOrUndefined } from 'util';
+import {spawn, ChildProcess} from 'child_process';
+import * as path from 'path';
+
+const vol = require('vol');
 
 // must be ordered from easiest to hardest
 const ranks = [
@@ -46,6 +50,8 @@ const SCORE_TIMEOUT_MS = 500;
 const MAX_SCORE = 80;
 const METER_WIDTH_REM = 10;
 const METER_MARGIN_RIGHT_REM = 1;
+const AUDIO_FILENAME = 'devil_trigger.mp3';
+const MAX_VOLUME = .15;
 
 const defaultLetterCss = `
     none;
@@ -77,11 +83,26 @@ let score = 0;
 // the previous line number of the start of the editor visible range
 let prevStartLine = 0;
 
+let audioProcess: ChildProcess;
+
 export function activate(context: vscode.ExtensionContext) {
     let changeDisposable = vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument);
     let scrollDisposable = vscode.window.onDidChangeTextEditorVisibleRanges(onDidChangeTextEditorVisibleRanges);
     context.subscriptions.push(changeDisposable);
     context.subscriptions.push(scrollDisposable);
+
+    // play audio
+    vol.set(0);
+    const audioFilepath = path.join(context.extensionPath, 'audio', AUDIO_FILENAME);
+    audioProcess = spawn('ffplay', ['-nodisp', '-loop', '0', '-volume', '100', audioFilepath]);
+    audioProcess.on('error', (err: any) => {
+        if (err.code === 'ENOENT') {
+            vscode.window.showErrorMessage('Style meter requires \"ffplay\" to be installed on $PATH');
+        } else {
+            vscode.window.showErrorMessage('Style meter unknown audio error: ' + err.code);
+        }
+    });
+    audioProcess.stdin.setDefaultEncoding('utf-8');
 
     // style degradation
     // reduce the score at a constant rate
@@ -100,6 +121,7 @@ export function deactivate() {
 function updateRanking() {
     const prevRankIndex = rankIndex;
     rankIndex = getRankIndex(score);
+    vol.set((score / MAX_SCORE) * MAX_VOLUME);
     if (rankIndex < 0) {
         clearDecoration(activeRankDecoration);
         clearDecoration(activeMeterDecoration);
@@ -123,8 +145,9 @@ function getRankIndex(score: number): number {
 
 // increment score whenever they type
 function onDidChangeTextDocument(event: vscode.TextDocumentChangeEvent) {
-    if (score < MAX_SCORE) {
-        score++;
+    score++;
+    if (score > MAX_SCORE) {
+        score = MAX_SCORE;
     }
     updateRanking();
 }

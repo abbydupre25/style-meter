@@ -9,7 +9,8 @@
 			true,
 			"always"
 		],
-		"triple-equals": true
+		"triple-equals": true,
+		"max-line-length": [true, 120]
 	},
 	"defaultSeverity": "warning"
 }

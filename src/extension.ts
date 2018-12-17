@@ -2,9 +2,9 @@
 
 import * as vscode from 'vscode';
 import { isNullOrUndefined } from 'util';
-import {spawn, ChildProcess} from 'child_process';
 
 const vol = require('vol');
+const player = require('play-sound')({});
 
 // must be ordered from easiest to hardest
 const ranks = [
@@ -81,7 +81,6 @@ let score = 0;
 // the previous line number of the start of the editor visible range
 let prevStartLine = 0;
 
-let audioProcess: ChildProcess;
 let isAudioEnabled = false;
 
 let config: vscode.WorkspaceConfiguration;
@@ -97,17 +96,9 @@ export function activate(context: vscode.ExtensionContext) {
     // play audio
     const audioFilepath = config.get<string>('musicFilepath', '');
     if (audioFilepath !== '') {
-        vol.set(0);
-        audioProcess = spawn('ffplay', ['-nodisp', '-loop', '0', '-volume', '100', audioFilepath]);
-        audioProcess.on('error', (err: any) => {
-            isAudioEnabled = false;
-            if (err.code === 'ENOENT') {
-                vscode.window.showErrorMessage('Style meter requires \"ffplay\" to be installed on $PATH');
-            } else {
-                vscode.window.showErrorMessage('Style meter unknown audio error: ' + err.code);
-            }
-        });
         isAudioEnabled = true;
+        vol.set(0);
+        loopAudio(audioFilepath);
     }
 
     // style degradation
@@ -121,6 +112,15 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
+}
+
+function loopAudio(audioFilepath: string) {
+    const audioProcess = player.play(audioFilepath, (err: any) => {
+        if (err) {
+            throw err;
+        }
+    });
+    audioProcess.on('close', () => loopAudio(audioFilepath)); // this might be leaking memory
 }
 
 // update the rank index and decorations based on the score

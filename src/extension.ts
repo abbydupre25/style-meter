@@ -3,7 +3,6 @@
 import * as vscode from 'vscode';
 import { isNullOrUndefined } from 'util';
 import {spawn, ChildProcess} from 'child_process';
-import * as path from 'path';
 
 const vol = require('vol');
 
@@ -50,7 +49,6 @@ const SCORE_TIMEOUT_MS = 500;
 const MAX_SCORE = 80;
 const METER_WIDTH_REM = 10;
 const METER_MARGIN_RIGHT_REM = 1;
-const AUDIO_FILENAME = 'devil_trigger.mp3';
 const MAX_VOLUME = .15;
 
 const defaultLetterCss = `
@@ -84,31 +82,39 @@ let score = 0;
 let prevStartLine = 0;
 
 let audioProcess: ChildProcess;
+let isAudioEnabled = false;
+
+let config: vscode.WorkspaceConfiguration;
 
 export function activate(context: vscode.ExtensionContext) {
+    config = vscode.workspace.getConfiguration('styleMeter');
+
     let changeDisposable = vscode.workspace.onDidChangeTextDocument(onDidChangeTextDocument);
     let scrollDisposable = vscode.window.onDidChangeTextEditorVisibleRanges(onDidChangeTextEditorVisibleRanges);
     context.subscriptions.push(changeDisposable);
     context.subscriptions.push(scrollDisposable);
 
     // play audio
-    vol.set(0);
-    const audioFilepath = path.join(context.extensionPath, 'audio', AUDIO_FILENAME);
-    audioProcess = spawn('ffplay', ['-nodisp', '-loop', '0', '-volume', '100', audioFilepath]);
-    audioProcess.on('error', (err: any) => {
-        if (err.code === 'ENOENT') {
-            vscode.window.showErrorMessage('Style meter requires \"ffplay\" to be installed on $PATH');
-        } else {
-            vscode.window.showErrorMessage('Style meter unknown audio error: ' + err.code);
-        }
-    });
-    audioProcess.stdin.setDefaultEncoding('utf-8');
+    const audioFilepath = config.get<string>('musicFilepath', '');
+    if (audioFilepath !== '') {
+        vol.set(0);
+        audioProcess = spawn('ffplay', ['-nodisp', '-loop', '0', '-volume', '100', audioFilepath]);
+        audioProcess.on('error', (err: any) => {
+            isAudioEnabled = false;
+            if (err.code === 'ENOENT') {
+                vscode.window.showErrorMessage('Style meter requires \"ffplay\" to be installed on $PATH');
+            } else {
+                vscode.window.showErrorMessage('Style meter unknown audio error: ' + err.code);
+            }
+        });
+        isAudioEnabled = true;
+    }
 
     // style degradation
     // reduce the score at a constant rate
     setInterval(() => {
         if (score > 0) {
-            score--;
+            score -= config.get<number>('degradationFactor', 1.0);
             updateRanking();
         }
     }, SCORE_TIMEOUT_MS);
@@ -121,7 +127,11 @@ export function deactivate() {
 function updateRanking() {
     const prevRankIndex = rankIndex;
     rankIndex = getRankIndex(score);
-    vol.set((score / MAX_SCORE) * MAX_VOLUME);
+
+    if (isAudioEnabled) {
+        vol.set((score / MAX_SCORE) * config.get<number>('maxVolume', MAX_VOLUME));
+    }
+
     if (rankIndex < 0) {
         clearDecoration(activeRankDecoration);
         clearDecoration(activeMeterDecoration);
@@ -145,7 +155,7 @@ function getRankIndex(score: number): number {
 
 // increment score whenever they type
 function onDidChangeTextDocument(event: vscode.TextDocumentChangeEvent) {
-    score++;
+    score += config.get<number>('gainFactor', 1.0);
     if (score > MAX_SCORE) {
         score = MAX_SCORE;
     }

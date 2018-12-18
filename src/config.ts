@@ -42,7 +42,7 @@ export const defaultStyleMeterConfig = {
         {
             text: 'D',
             smallText: 'ope!',
-            score: 0,
+            score: 10,
             color: '#89a7a7',
         },
         {

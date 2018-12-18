@@ -1,8 +1,22 @@
 {
     "name": "style-meter",
-    "displayName": "style-meter",
-    "description": "",
+    "displayName": "Style Meter",
+    "description": "Add an action game style meter to to VSCode that gives you a higher rank as you type.",
     "version": "0.0.1",
+    "publisher": "djdupre",
+    "author": {
+        "name": "David Dupre",
+        "url": "https://github.com/DavidDupre"
+    },
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/DavidDupre/style-meter/issues"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/DavidDupre/style-meter.git"
+    },
+    "homepage": "https://github.com/DavidDupre/style-meter",
     "engines": {
         "vscode": "^1.30.0"
     },

@@ -3,38 +3,16 @@ import { RankChangeEvent, ScoreChangeEvent } from './score-keeper';
 import { StyleMeterConfig } from './config';
 import { ScoreKeeper } from './score-keeper';
 
+const pixelWidth = require('string-pixel-width');
 
-const METER_WIDTH_REM = 8;
-const METER_MARGIN_RIGHT_REM = 9;
-const RANK_TEXT_MARGIN_TOP_REM = 4.2;
+
+/**
+ * How long the rank text should stay on screen.
+ */
 const RANK_TEXT_TIMEOUT_MS = 1000;
-const RANK_LETTER_CSS = `
-    none;
-    position: absolute;
-    display: inline-block;
-    right: ${METER_MARGIN_RIGHT_REM}rem;
-    top: 4rem;
-    width: ${METER_WIDTH_REM}rem;
-    font-size: 4rem;
-    font-style: italic;
-    font-family: serif;
-`;
-const RANK_TEXT_CSS = `
-    none;
-    position: absolute;
-    display: inline-block;
-    right: ${METER_MARGIN_RIGHT_REM}rem;
-    font-size: 3rem;
-    font-style: italic;
-    font-family: serif;
-`;
-const METER_CSS = `
-    none;
-    position: absolute;
-    display: inline-block;
-    top: 6.5rem;
-    height: .5rem;
-`;
+
+const METER_MIN_WIDTH_PX = 20;
+const METER_MIN_HEIGHT_PX = 3;
 
 
 class ReplaceableDecoration {
@@ -68,12 +46,92 @@ export class RankDecorator {
         this._activeMeterDecoration
     ];
 
+    // cached pixel values and css
+    private _rankLetterPixelWidths: number[] = [];
+    private _rankFullWidth: number;
+    private _rankTextTopMargin: number;
+    private _meterWidthPx: number;
+    private _rankLetterCss: string;
+    private _rankTextCss: string;
+    private _meterCss: string;
+
     constructor(public readonly config: StyleMeterConfig, private readonly _scoreKeeper: ScoreKeeper) {
         vscode.window.onDidChangeTextEditorVisibleRanges(this._onDidChangeTextEditorVisibleRanges, this,
             this._disposables);
         this._scoreKeeper.onRankChange(this._updateRankDecoration, this, this._disposables);
         this._scoreKeeper.onRankChange(this._updateSmallRankDecoration, this, this._disposables);
         this._scoreKeeper.onScoreChange(this._updateMeterDecoration, this, this._disposables);
+
+        // calculate pixel widths of rank letter and text
+        // this keeps the rank text from flying off the screen
+        let maxRankFullWidth = 0;
+        config.ranks.forEach(rank => {
+            const letterWidth = pixelWidth(rank.text, {
+                font: config.rankFont,
+                italic: true,
+                size: config.rankLetterFontSizePx
+            });
+            this._rankLetterPixelWidths.push(letterWidth);
+
+            const textWidth = pixelWidth(rank.smallText, {
+                font: config.rankFont,
+                italic: true,
+                size: config.rankTextFontSizePx
+            });
+            const fullWidth = textWidth + letterWidth;
+            if (fullWidth > maxRankFullWidth) {
+                maxRankFullWidth = fullWidth;
+            }
+        });
+        this._rankFullWidth = maxRankFullWidth;
+
+        // calculate the top margin as some proportion of the width
+        const topMargin = maxRankFullWidth / 8;
+        this._rankTextTopMargin = topMargin + (config.rankLetterFontSizePx - config.rankTextFontSizePx);
+
+        // size the meter as some proportion of the text width
+        let meterHeightPx = maxRankFullWidth / 30;
+        if (meterHeightPx < METER_MIN_HEIGHT_PX) {
+            meterHeightPx = METER_MIN_HEIGHT_PX;
+        }
+        this._meterWidthPx = maxRankFullWidth / 2;
+        if (this._meterWidthPx < METER_MIN_WIDTH_PX) {
+            this._meterWidthPx = METER_MIN_WIDTH_PX;
+        }
+
+        this._rankLetterCss = `
+            none;
+            position: absolute;
+            display: inline-block;
+            right: 0px;
+            top: ${topMargin}px;
+            width: ${maxRankFullWidth}px;
+            height: ${config.rankLetterFontSizePx}px;
+            font-size: ${config.rankLetterFontSizePx}px;
+            font-style: italic;
+            font-family: serif;
+            vertical-align: middle;
+            line-height: normal;
+        `;
+        this._rankTextCss = `
+            none;
+            position: absolute;
+            display: inline-block;
+            right: 0px;
+            height: ${config.rankLetterFontSizePx}px;
+            font-size: ${config.rankTextFontSizePx}px;
+            font-style: italic;
+            font-family: serif;
+            vertical-align: middle;
+            line-height: normal;
+        `;
+        this._meterCss = `
+            none;
+            position: absolute;
+            display: inline-block;
+            top: ${topMargin + config.rankLetterFontSizePx}px;
+            height: ${meterHeightPx}px;
+        `;
     }
 
     public dispose(): void {
@@ -102,7 +160,7 @@ export class RankDecorator {
         const rank = this.config.ranks[rankIndex];
         return vscode.window.createTextEditorDecorationType({
             before: {
-                textDecoration: RANK_LETTER_CSS,
+                textDecoration: this._rankLetterCss,
                 contentText: rank.text,
                 color: rank.color,
             },
@@ -112,11 +170,11 @@ export class RankDecorator {
 
     private _createSmallRankDecoration(rankIndex: number, shift: number): vscode.TextEditorDecorationType {
         const rank = this.config.ranks[rankIndex];
-        const width = METER_WIDTH_REM - rank.smallTextOffsetRem;
-        const top = RANK_TEXT_MARGIN_TOP_REM + shift;
+        const width = this._rankFullWidth - this._rankLetterPixelWidths[rankIndex];
+        const top = this._rankTextTopMargin + shift;
         return vscode.window.createTextEditorDecorationType({
             before: {
-                textDecoration: `${RANK_TEXT_CSS} width: ${width}rem; top: ${top}rem`,
+                textDecoration: `${this._rankTextCss} width: ${width}px; top: ${top}px`,
                 contentText: rank.smallText,
                 color: rank.color,
             },
@@ -138,8 +196,8 @@ export class RankDecorator {
         const currentThreshold = rank.score;
         const progress = (score - currentThreshold) / (nextThreshold - currentThreshold);
         
-        const width = progress * METER_WIDTH_REM;
-        const rightMargin = METER_MARGIN_RIGHT_REM + (METER_WIDTH_REM - width);
+        const width = progress * this._meterWidthPx;
+        const rightMargin = this._rankFullWidth - width;
 
         // transition from red to orange
         const red = 163 + progress * (178 - 163);
@@ -150,10 +208,10 @@ export class RankDecorator {
         return vscode.window.createTextEditorDecorationType({
             // this is on 'after' because weird overlapping happens if they're both on 'before'
             after: {
-                textDecoration: `${METER_CSS} right: ${rightMargin}rem;`,
+                textDecoration: `${this._meterCss} right: ${rightMargin}px;`,
                 contentText: '',
                 backgroundColor: color,
-                width: `${width}rem`,
+                width: `${width}px`,
             },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
@@ -194,7 +252,7 @@ export class RankDecorator {
         const range = new vscode.Range(pos, pos);
         let topMarginShift;
         if (visibleRange.start.line !== visibleRange.end.line) {
-            topMarginShift = -1;
+            topMarginShift = -this.config.lineHeightPx;
         } else {
             topMarginShift = 0;
         }

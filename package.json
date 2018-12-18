@@ -37,6 +37,21 @@
                     "type": "number",
                     "default": 1,
                     "description": "Sets a multiplier on the rate of style degradation. Decrease to make it easier."
+                },
+                "styleMeter.rankLetterFontSizePx": {
+                    "type": "number",
+                    "default": 60,
+                    "description": "Sets the pixel font size of the rank letter."
+                },
+                "styleMeter.rankTextFontSizePx": {
+                    "type": "number",
+                    "default": 40,
+                    "description": "Sets the pixel font size of the rank text that comes after the first letter."
+                },
+                "styleMeter.lineHeightPx": {
+                    "type": "number",
+                    "default": 20,
+                    "description": "Sets a special value for a hack to adjust rank text alignment."
                 }
             }
         }
@@ -57,6 +72,7 @@
     },
     "dependencies": {
         "play-sound": "^1.1.2",
+        "string-pixel-width": "^1.8.0",
         "vol": "^3.0.0"
     }
 }

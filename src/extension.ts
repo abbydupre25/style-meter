@@ -30,15 +30,17 @@ function onDidChangeConfiguration() {
     }
 
     // merge the workspace config with the default config
-    // TODO replace with something more maintainable
-    const config = vscode.workspace.getConfiguration('styleMeter');
-    const styleMeterConfig = JSON.parse(JSON.stringify(defaultStyleMeterConfig));
-    styleMeterConfig.musicFilepath = config.get<string>('musicFilepath', styleMeterConfig.musicFilepath);
-    styleMeterConfig.maxVolume = config.get<number>('maxVolume', styleMeterConfig.maxVolume);
-    styleMeterConfig.gainFactor = config.get<number>('gainFactor', styleMeterConfig.gainFactor);
-    styleMeterConfig.degradationFactor = config.get<number>('degradationFactor', styleMeterConfig.degradationFactor);
+    const input = vscode.workspace.getConfiguration('styleMeter');
+    const c = JSON.parse(JSON.stringify(defaultStyleMeterConfig));
+    c.musicFilepath = input.get<string>('musicFilepath', c.musicFilepath);
+    c.maxVolume = input.get<number>('maxVolume', c.maxVolume);
+    c.gainFactor = input.get<number>('gainFactor', c.gainFactor);
+    c.degradationFactor = input.get<number>('degradationFactor', c.degradationFactor);
+    c.rankLetterFontSizePx = input.get<number>('rankLetterFontSizePx', c.rankLetterFontSizePx);
+    c.rankTextFontSizePx = input.get<number>('rankTextFontSizePx', c.rankTextFontSizePx);
+    c.lineHeightPx = input.get<number>('lineHeightPx', c.lineHeightPx);
 
-    styleMeter = new StyleMeter(styleMeterConfig);
+    styleMeter = new StyleMeter(c);
 }
 
 

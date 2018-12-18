@@ -62,7 +62,7 @@ const ranks: Rank[] = [
 ];
 
 const SCORE_TIMEOUT_MS = 500;
-const SMALL_TEXT_TIMEOUT_MS = 500;
+const SMALL_TEXT_TIMEOUT_MS = 1000;
 const MAX_SCORE = 80;
 const METER_WIDTH_REM = 8;
 const METER_MARGIN_RIGHT_REM = 9;
@@ -148,6 +148,103 @@ function onDidChangeTextEditorVisibleRanges(event: vscode.TextEditorVisibleRange
 }
 
 
+interface ScoreChangeEvent {
+    rankIndex: number;
+    score: number;
+}
+
+
+interface RankChangeEvent {
+    rankIndex: number;
+}
+
+
+class ScoreKeeper {
+    public _onScoreChange = new vscode.EventEmitter<ScoreChangeEvent>();
+    public _onRankChange = new vscode.EventEmitter<RankChangeEvent>();
+
+    // index into the ranks array. -1 means no ranking (worse than D)
+    private _rankIndex = -1;
+
+    // score to determine the current ranking
+    private _score = 0;
+
+    // timer used for style degradation
+    private _timer: NodeJS.Timer;
+
+    constructor(public readonly config: StyleMeterConfig) {
+        // style degradation
+        // reduce the score at a constant rate
+        this._timer = setInterval(() => {
+            this._changeScore(-config.degradationFactor);
+        }, SCORE_TIMEOUT_MS);
+    }
+
+    get onScoreChange() {
+        return this._onScoreChange.event;
+    }
+
+    get onRankChange() {
+        return this._onRankChange.event;
+    }
+
+    // increment score whenever they type
+    public onDidChangeTextDocument(event: vscode.TextDocumentChangeEvent) {
+        this._changeScore(this.config.gainFactor);
+    }
+
+    public score(): number {
+        return this._score;
+    }
+
+    public rankIndex(): number {
+        return this._rankIndex;
+    }
+
+    public dispose() {
+        clearInterval(this._timer);
+        this._onRankChange.dispose();
+        this._onScoreChange.dispose();
+    }
+
+    private _changeScore(amount: number) {
+        // update score value
+        const prevScore = this._score;
+        this._score += amount;
+        if (this._score < 0) {
+            this._score = 0;
+        } else if (this._score > MAX_SCORE) {
+            this._score = MAX_SCORE;
+        }
+
+        if (this._score === prevScore) {
+            return;
+        }
+
+        // update rank index
+        const prevRankIndex = this._rankIndex;
+        this._rankIndex = this._getRankIndex(this._score);
+        
+        // call on score change listeners
+        this._onScoreChange.fire({ rankIndex: this._rankIndex, score: this._score });
+
+        // if the rank changed, call on rank change listeners
+        if (this._rankIndex !== prevRankIndex) {
+            this._onRankChange.fire({ rankIndex: this._rankIndex });
+        }
+    }
+
+    private _getRankIndex(score: number): number {
+        for (let i = ranks.length - 1; i >= 0; i--) {
+            if (score > ranks[i].score) {
+                return i;
+            }
+        }
+        return -1; // -1 represents no style ranking
+    }
+}
+
+
 class ReplaceableDecoration {
     private _decoration?: vscode.TextEditorDecorationType;
 
@@ -170,15 +267,6 @@ class StyleMeter {
     private _activeSmallRankDecortion = new ReplaceableDecoration();
     private _activeMeterDecoration = new ReplaceableDecoration();
 
-    // index into the ranks array. -1 means no ranking (worse than D)
-    private _rankIndex = -1;
-
-    // score to determine the current ranking
-    private _score = 0;
-
-    // timer used for style degradation
-    private _timer: NodeJS.Timer;
-
     // timer for small text disappearing after a rank change
     private _smallTextTimer?: NodeJS.Timer;
 
@@ -188,34 +276,37 @@ class StyleMeter {
     // the volume value from before this extension messed with it
     private _prevVolume?: number;
 
-    // the last epoch the ranking was updated
-    private _lastUpdateTimeMs = 0;
+    // the last epoch the volume was set
+    private _lastVolumeUpdateTimeMs = 0;
+
+    private _scoreKeeper: ScoreKeeper;
+
+    private _disposables: vscode.Disposable[] = [
+        this._activeRankDecoration,
+        this._activeSmallRankDecortion,
+        this._activeMeterDecoration
+    ];
 
     constructor(public config: StyleMeterConfig) {
         // play audio
-        if (config.musicFilepath) {
+        if (this.config.musicFilepath) {
             this._prevVolume = vol.get();
             vol.set(0);
-            this._loopAudio(config.musicFilepath);
+            this._loopAudio(this.config.musicFilepath);
         }
 
-        // style degradation
-        // reduce the score at a constant rate
-        this._timer = setInterval(() => {
-            if (this._score > 0) {
-                this._score -= config.degradationFactor;
-                this._updateRanking();
-            }
-        }, SCORE_TIMEOUT_MS);
+        this._scoreKeeper = new ScoreKeeper(this.config);
+        this._disposables.push(this._scoreKeeper);
+
+        this._scoreKeeper.onScoreChange(this._updateMeterDecoration, this, this._disposables);
+        this._scoreKeeper.onScoreChange(this._updateVolume, this, this._disposables);
+        this._scoreKeeper.onRankChange(this._updateRankDecoration, this, this._disposables);
+        this._scoreKeeper.onRankChange(this._updateSmallRankDecoration, this, this._disposables);
     }
 
-    // increment score whenever they type
+    // forward content changes events to the score keeper
     public onDidChangeTextDocument(event: vscode.TextDocumentChangeEvent) {
-        this._score += this.config.gainFactor;
-        if (this._score > MAX_SCORE) {
-            this._score = MAX_SCORE;
-        }
-        this._updateRanking();
+        this._scoreKeeper.onDidChangeTextDocument(event);
     }
 
     // update the decorations so that they follow vertical scrolling
@@ -225,8 +316,10 @@ class StyleMeter {
         if (event.textEditor !== vscode.window.activeTextEditor) {
             return;
         }
-        this._updateRankDecoration();
-        this._updateMeterDecoration();
+        const score = this._scoreKeeper.score();
+        const rankIndex = this._scoreKeeper.rankIndex();
+        this._updateRankDecoration({ rankIndex });
+        this._updateMeterDecoration({ rankIndex, score });
     }
 
     public dispose() {
@@ -240,13 +333,7 @@ class StyleMeter {
             vol.set(this._prevVolume);
         }
 
-        // clear the decorations
-        this._activeRankDecoration.dispose();
-        this._activeSmallRankDecortion.dispose();
-        this._activeMeterDecoration.dispose();
-
-        // stop style degradation timer
-        clearInterval(this._timer);
+        this._disposables.slice(0).forEach(d => d.dispose());
     }
 
     private _loopAudio(audioFilepath: string) {
@@ -267,41 +354,13 @@ class StyleMeter {
         this._audioProcess = audioProcess;
     }
 
-    // update the rank index and decorations based on the score
-    private _updateRanking() {
+    private _updateVolume(event: ScoreChangeEvent) {
         const now = new Date().valueOf();
-
-        const prevRankIndex = this._rankIndex;
-        this._rankIndex = this._getRankIndex(this._score);
-
-        if (this.config.musicFilepath && (now - this._lastUpdateTimeMs) >= MIN_VOLUME_UPDATE_PERIOD_MS) {
-            const volume = (this._score / MAX_SCORE) * this.config.maxVolume;
+        if (this.config.musicFilepath && (now - this._lastVolumeUpdateTimeMs) >= MIN_VOLUME_UPDATE_PERIOD_MS) {
+            const volume = (event.score / MAX_SCORE) * this.config.maxVolume;
             vol.set(volume);
+            this._lastVolumeUpdateTimeMs = now;
         }
-
-        if (this._rankIndex < 0) {
-            this._activeRankDecoration.dispose();
-            this._activeSmallRankDecortion.dispose();
-            this._activeMeterDecoration.dispose();
-        } else {
-            if (prevRankIndex !== this._rankIndex) {
-                // only update rank decoration on rank changes
-                this._updateRankDecoration();
-                this._updateSmallRankDecoration();
-            }
-            this._updateMeterDecoration();
-        }
-
-        this._lastUpdateTimeMs = now;
-    }
-
-    private _getRankIndex(score: number): number {
-        for (let i = ranks.length - 1; i >= 0; i--) {
-            if (score > ranks[i].score) {
-                return i;
-            }
-        }
-        return -1; // -1 represents no style ranking
     }
 
     private _createRankDecoration(rankIndex: number): vscode.TextEditorDecorationType {
@@ -355,7 +414,12 @@ class StyleMeter {
         });
     }
 
-    private _updateRankDecoration() {
+    private _updateRankDecoration(event: RankChangeEvent) {
+        if (event.rankIndex < 0) {
+            this._activeRankDecoration.dispose();
+            return;
+        }
+
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             return;
@@ -363,12 +427,17 @@ class StyleMeter {
 
         // TODO these can be cached
         // create decoration for the rank letter
-        const rankDecoration = this._createRankDecoration(this._rankIndex);
+        const rankDecoration = this._createRankDecoration(event.rankIndex);
 
         this._activeRankDecoration.replace(rankDecoration, editor, editor.visibleRanges);
     }
 
-    private _updateSmallRankDecoration() {
+    private _updateSmallRankDecoration(event: RankChangeEvent) {
+        if (event.rankIndex < 0) {
+            this._activeSmallRankDecortion.dispose();
+            return;
+        }
+
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             return;
@@ -385,7 +454,7 @@ class StyleMeter {
             topMarginShift = 0;
         }
 
-        const smallRankDecoration = this._createSmallRankDecoration(this._rankIndex, topMarginShift);
+        const smallRankDecoration = this._createSmallRankDecoration(event.rankIndex, topMarginShift);
 
         // remove the small rank decoration shortly after a rank change
         if (SMALL_TEXT_TIMEOUT_MS >= 0) {
@@ -400,7 +469,12 @@ class StyleMeter {
         this._activeSmallRankDecortion.replace(smallRankDecoration, editor, [range]);
     }
 
-    private _updateMeterDecoration() {
+    private _updateMeterDecoration(event: ScoreChangeEvent) {
+        if (event.rankIndex < 0) {
+            this._activeMeterDecoration.dispose();
+            return;
+        }
+
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             return;
@@ -408,7 +482,7 @@ class StyleMeter {
     
         // TODO these might also be cached
         // create decoration for the meter
-        const meterDecoration = this._createMeterDecoration(this._rankIndex, this._score);
+        const meterDecoration = this._createMeterDecoration(event.rankIndex, event.score);
     
         // use [start, start] range to pretend this is a 'before' decoration and not 'after'
         const start = editor.visibleRanges[0].start;

@@ -1,57 +1,74 @@
 'use strict';
 
 import * as vscode from 'vscode';
-import { isNullOrUndefined } from 'util';
 import { StyleMeterConfig } from './config';
+import { Rank } from './rank';
 import { ChildProcess } from 'child_process';
 
 const vol = require('vol');
 const player = require('play-sound')({});
 
 // must be ordered from easiest to hardest
-const ranks = [
+const ranks: Rank[] = [
     {
-        text: 'D', // text to display for style ranking
-        score: 10, // minimum score to acquire this rank (0 for debugging)
+        text: 'D',
+        smallText: 'ope!',
+        smallTextOffsetRem: 3,
+        score: 0,
         color: '#89a7a7',
     },
     {
         text: 'C',
+        smallText: 'razy!',
+        smallTextOffsetRem: 2.8,
         score: 20,
         color: '#b3cdc0',
     },
     {
         text: 'B',
+        smallText: 'last!',
+        smallTextOffsetRem: 2.5,
         score: 30,
         color: '#aeb295',
     },
     {
         text: 'A',
+        smallText: 'lright!',
+        smallTextOffsetRem: 2.5,
         score: 40,
         color: '#caad9a',
     },
     {
         text: 'S',
+        smallText: 'weet!',
+        smallTextOffsetRem: 2,
         score: 50,
         color: '#b2889e',
     },
     {
         text: 'SS',
+        smallText: 'howtime!!',
+        smallTextOffsetRem: 4,
         score: 60,
         color: '#d4b7d6',
     },
     {
         text: 'SSS',
+        smallText: 'tylish!!!',
+        smallTextOffsetRem: 6,
         score: 70,
         color: '#ffb9c6',
     },
 ];
 
 const SCORE_TIMEOUT_MS = 500;
+const SMALL_TEXT_TIMEOUT_MS = 500;
 const MAX_SCORE = 80;
-const METER_WIDTH_REM = 10;
-const METER_MARGIN_RIGHT_REM = 1;
+const METER_WIDTH_REM = 8;
+const METER_MARGIN_RIGHT_REM = 9;
+const SMALL_TEXT_MARGIN_TOP_REM = 4.2;
 const DEFAULT_MAX_VOLUME = .15;
+const MIN_VOLUME_UPDATE_PERIOD_MS = 100;
 
 const defaultLetterCss = `
     none;
@@ -60,14 +77,24 @@ const defaultLetterCss = `
     right: ${METER_MARGIN_RIGHT_REM}rem;
     top: 4rem;
     width: ${METER_WIDTH_REM}rem;
-    font-size: 6rem;
-    font-family: lobster;
+    font-size: 4rem;
+    font-style: italic;
+    font-family: serif;
+`;
+const defaultSmallLetterCss = `
+    none;
+    position: absolute;
+    display: inline-block;
+    right: ${METER_MARGIN_RIGHT_REM}rem;
+    font-size: 3rem;
+    font-style: italic;
+    font-family: serif;
 `;
 const defaultMeterCss  = `
     none;
     position: absolute;
     display: inline-block;
-    top: 7rem;
+    top: 6.5rem;
     height: .5rem;
 `;
 
@@ -121,9 +148,27 @@ function onDidChangeTextEditorVisibleRanges(event: vscode.TextEditorVisibleRange
 }
 
 
+class ReplaceableDecoration {
+    private _decoration?: vscode.TextEditorDecorationType;
+
+    public replace(d: vscode.TextEditorDecorationType, editor: vscode.TextEditor, ranges: vscode.Range[]) {
+        this.dispose();
+        this._decoration = d;
+        editor.setDecorations(this._decoration, ranges);
+    }
+
+    public dispose() {
+        if (this._decoration) {
+            this._decoration.dispose();
+        }
+    }
+}
+
+
 class StyleMeter {
-    private _activeRankDecoration?: vscode.TextEditorDecorationType;
-    private _activeMeterDecoration?: vscode.TextEditorDecorationType;
+    private _activeRankDecoration = new ReplaceableDecoration();
+    private _activeSmallRankDecortion = new ReplaceableDecoration();
+    private _activeMeterDecoration = new ReplaceableDecoration();
 
     // index into the ranks array. -1 means no ranking (worse than D)
     private _rankIndex = -1;
@@ -131,17 +176,20 @@ class StyleMeter {
     // score to determine the current ranking
     private _score = 0;
 
-    // the previous line number of the start of the editor visible range
-    private _prevStartLine = 0;
-
     // timer used for style degradation
     private _timer: NodeJS.Timer;
+
+    // timer for small text disappearing after a rank change
+    private _smallTextTimer?: NodeJS.Timer;
 
     // the process playing audio
     private _audioProcess?: ChildProcess;
 
     // the volume value from before this extension messed with it
     private _prevVolume?: number;
+
+    // the last epoch the ranking was updated
+    private _lastUpdateTimeMs = 0;
 
     constructor(public config: StyleMeterConfig) {
         // play audio
@@ -177,12 +225,8 @@ class StyleMeter {
         if (event.textEditor !== vscode.window.activeTextEditor) {
             return;
         }
-        const start = event.visibleRanges[0].start.line;
-        if (start !== this._prevStartLine) {
-            this._updateRankDecoration();
-            this._updateMeterDecoration();
-            this._prevStartLine = start;
-        }
+        this._updateRankDecoration();
+        this._updateMeterDecoration();
     }
 
     public dispose() {
@@ -197,8 +241,9 @@ class StyleMeter {
         }
 
         // clear the decorations
-        this._clearDecoration(this._activeRankDecoration);
-        this._clearDecoration(this._activeMeterDecoration);
+        this._activeRankDecoration.dispose();
+        this._activeSmallRankDecortion.dispose();
+        this._activeMeterDecoration.dispose();
 
         // stop style degradation timer
         clearInterval(this._timer);
@@ -224,24 +269,30 @@ class StyleMeter {
 
     // update the rank index and decorations based on the score
     private _updateRanking() {
+        const now = new Date().valueOf();
+
         const prevRankIndex = this._rankIndex;
         this._rankIndex = this._getRankIndex(this._score);
 
-        if (this.config.musicFilepath) {
+        if (this.config.musicFilepath && (now - this._lastUpdateTimeMs) >= MIN_VOLUME_UPDATE_PERIOD_MS) {
             const volume = (this._score / MAX_SCORE) * this.config.maxVolume;
             vol.set(volume);
         }
 
         if (this._rankIndex < 0) {
-            this._clearDecoration(this._activeRankDecoration);
-            this._clearDecoration(this._activeMeterDecoration);
+            this._activeRankDecoration.dispose();
+            this._activeSmallRankDecortion.dispose();
+            this._activeMeterDecoration.dispose();
         } else {
             if (prevRankIndex !== this._rankIndex) {
                 // only update rank decoration on rank changes
                 this._updateRankDecoration();
+                this._updateSmallRankDecoration();
             }
             this._updateMeterDecoration();
         }
+
+        this._lastUpdateTimeMs = now;
     }
 
     private _getRankIndex(score: number): number {
@@ -260,27 +311,47 @@ class StyleMeter {
                 contentText: ranks[rankIndex].text,
                 color: ranks[rankIndex].color,
             },
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+        });
+    }
+
+    private _createSmallRankDecoration(rankIndex: number, shift: number): vscode.TextEditorDecorationType {
+        const width = METER_WIDTH_REM - ranks[rankIndex].smallTextOffsetRem;
+        const top = SMALL_TEXT_MARGIN_TOP_REM + shift;
+        return vscode.window.createTextEditorDecorationType({
+            before: {
+                textDecoration: `${defaultSmallLetterCss} width: ${width}rem; top: ${top}rem`,
+                contentText: ranks[rankIndex].smallText,
+                color: ranks[rankIndex].color,
+            },
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
     }
 
     private _createMeterDecoration(rankIndex: number, score: number): vscode.TextEditorDecorationType {
-        // calculate style meter width
+        // calculate progress into next rank (0 to 1)
         const nextThreshold = rankIndex + 1 === ranks.length ? MAX_SCORE : ranks[rankIndex + 1].score;
         const currentThreshold = ranks[rankIndex].score;
         const progress = (score - currentThreshold) / (nextThreshold - currentThreshold);
+        
         const width = progress * METER_WIDTH_REM;
-    
-        // calculate style meter right margin
         const rightMargin = METER_MARGIN_RIGHT_REM + (METER_WIDTH_REM - width);
+
+        // transition from red to orange
+        const red = 163 + progress * (178 - 163);
+        const green = 53 + progress * (125 - 53);
+        const blue = 57 + progress * (64 - 57);
+        const color = `rgb(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)})`;
     
         return vscode.window.createTextEditorDecorationType({
-            // put the meter on 'after' instead of 'before' because weird overlapping happens if they're on the same
+            // this is on 'after' because weird overlapping happens if they're both on 'before'
             after: {
                 textDecoration: `${defaultMeterCss} right: ${rightMargin}rem;`,
                 contentText: '',
-                backgroundColor: ranks[rankIndex].color,
+                backgroundColor: color,
                 width: `${width}rem`,
             },
+            rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
     }
 
@@ -289,14 +360,44 @@ class StyleMeter {
         if (!editor) {
             return;
         }
-    
+
         // TODO these can be cached
         // create decoration for the rank letter
         const rankDecoration = this._createRankDecoration(this._rankIndex);
-    
-        this._clearDecoration(this._activeRankDecoration);
-        this._activeRankDecoration = rankDecoration;
-        editor.setDecorations(rankDecoration, editor.visibleRanges);
+
+        this._activeRankDecoration.replace(rankDecoration, editor, editor.visibleRanges);
+    }
+
+    private _updateSmallRankDecoration() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            return;
+        }
+
+        // use a slightly different range for the small rank text to avoid weird overlapping problems
+        const visibleRange = editor.visibleRanges[0];
+        const pos = visibleRange.start.translate(1);
+        const range = new vscode.Range(pos, pos);
+        let topMarginShift;
+        if (visibleRange.start.line !== visibleRange.end.line) {
+            topMarginShift = -1;
+        } else {
+            topMarginShift = 0;
+        }
+
+        const smallRankDecoration = this._createSmallRankDecoration(this._rankIndex, topMarginShift);
+
+        // remove the small rank decoration shortly after a rank change
+        if (SMALL_TEXT_TIMEOUT_MS >= 0) {
+            if (this._smallTextTimer) {
+                clearInterval(this._smallTextTimer);
+            }
+            this._smallTextTimer = setTimeout(() => {
+                this._activeSmallRankDecortion.dispose();
+            }, SMALL_TEXT_TIMEOUT_MS);
+        }
+
+        this._activeSmallRankDecortion.replace(smallRankDecoration, editor, [range]);
     }
 
     private _updateMeterDecoration() {
@@ -307,20 +408,12 @@ class StyleMeter {
     
         // TODO these might also be cached
         // create decoration for the meter
-        let meterDecoration = this._createMeterDecoration(this._rankIndex, this._score);
+        const meterDecoration = this._createMeterDecoration(this._rankIndex, this._score);
     
         // use [start, start] range to pretend this is a 'before' decoration and not 'after'
         const start = editor.visibleRanges[0].start;
         const range = new vscode.Range(start, start);
-    
-        this._clearDecoration(this._activeMeterDecoration);
-        this._activeMeterDecoration = meterDecoration;
-        editor.setDecorations(meterDecoration, [range]);
-    }
 
-    private _clearDecoration(decoration: vscode.TextEditorDecorationType | undefined) {
-        if (!isNullOrUndefined(decoration)) {
-            decoration.dispose();
-        }
+        this._activeMeterDecoration.replace(meterDecoration, editor, [range]);
     }
 }

@@ -24,7 +24,7 @@ A [`play-sound`](https://github.com/shime/play-sound#options) compatible audio p
 
 ## Known Issues
 
-- The style meter and ranking do not follow horizontal scrolling.
 - The rank text will sometimes become misaligned with rest of the style meter.
-- Multiple windows will play multiple instances of the style music.
+- The style meter and ranking do not follow horizontal scrolling.
 - The system volume will change if music is specified.
+- Only the first open workspace will change volume if music is specified.

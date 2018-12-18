@@ -55,9 +55,14 @@ class StyleMeter {
         const rankDecorator = new RankDecorator(config, this._scoreKeeper);
         this._disposables.push(rankDecorator);
 
+        // only add a music player if a file is specified an music is not already playing
         if (config.musicFilepath) {
-            const musicPlayer = new MusicPlayer(config, this._scoreKeeper);
-            this._disposables.push(musicPlayer);
+            MusicPlayer.isPlaying().then(isPlaying => {
+                if (!isPlaying) {
+                    const musicPlayer = new MusicPlayer(config, this._scoreKeeper);
+                    this._disposables.push(musicPlayer);
+                }
+            });
         }
     }
 

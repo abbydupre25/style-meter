@@ -4,7 +4,19 @@ import { ChildProcess } from 'child_process';
 import { Disposable } from 'vscode';
 
 const vol = require('vol');
-const player = require('play-sound')({});
+const psList = require('ps-list');
+
+const PLAYERS = [
+    'mplayer',
+    'afplay',
+    'mpg123',
+    'mpg321',
+    'play',
+    'omxplayer',
+    'aplay',
+    'cmdmp3'
+];
+const player = require('play-sound')({players: PLAYERS});
 
 const MIN_VOLUME_UPDATE_PERIOD_MS = 200;
 
@@ -54,6 +66,23 @@ export class MusicPlayer {
             vol.set(volume);
             this._lastVolumeUpdateTimeMs = now;
         }
+    }
+
+    /**
+     * Returns true if a process spawned by MusicPlayer might already be playing on this system.
+     */
+    public static async isPlaying(): Promise<boolean> {
+        const ps = await psList(); // get currently running processes
+
+        // return true if any of the processes have the same name as an audio player
+        for (let proc of ps) {
+            for (let audioPlayer of PLAYERS) {
+                if (proc.name.startsWith(audioPlayer)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private _loopAudio(audioFilepath: string) {

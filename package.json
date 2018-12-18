@@ -86,6 +86,7 @@
     },
     "dependencies": {
         "play-sound": "^1.1.2",
+        "ps-list": "^6.0.0",
         "string-pixel-width": "^1.8.0",
         "vol": "^3.0.0"
     }

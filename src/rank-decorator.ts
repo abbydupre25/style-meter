@@ -203,18 +203,26 @@ export class RankDecorator {
         const red = 163 + progress * (178 - 163);
         const green = 53 + progress * (125 - 53);
         const blue = 57 + progress * (64 - 57);
-        const color = `rgb(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)})`;
+        const color = this._getCssColor(red, green, blue);
+        const borderColor = this._getCssColor(red * 1.2, green * 1.2, blue * 1.2);
     
         return vscode.window.createTextEditorDecorationType({
             // this is on 'after' because weird overlapping happens if they're both on 'before'
             after: {
-                textDecoration: `${this._meterCss} right: ${rightMargin}px;`,
+                textDecoration: `${this._meterCss}
+                    right: ${rightMargin}px;
+                    border-right: 4px solid ${borderColor};
+                    border-radius: 2px;`,
                 contentText: '',
                 backgroundColor: color,
                 width: `${width}px`,
             },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
+    }
+
+    private _getCssColor(red: number, green: number, blue: number): string {
+        return `rgb(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)})`;
     }
 
     private _updateRankDecoration(event: RankChangeEvent) {

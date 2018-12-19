@@ -8,22 +8,46 @@ import { RankDecorator } from './rank-decorator';
 
 
 let styleMeter: StyleMeter;
+let enabled = false;
 
 
 export function activate(context: vscode.ExtensionContext) {
+    const enableDisposable = vscode.commands.registerCommand("styleMeter.enable", enable);
+    context.subscriptions.push(enableDisposable);
+
+    const disableDisposable = vscode.commands.registerCommand("styleMeter.disable", disable);
+    context.subscriptions.push(disableDisposable);
+
     const configDisposable = vscode.workspace.onDidChangeConfiguration(onDidChangeConfiguration);
     context.subscriptions.push(configDisposable);
 
-    onDidChangeConfiguration();
+    const defaultEnabled = vscode.workspace.getConfiguration('styleMeter').get<boolean>('defaultEnabled', false);
+    if (defaultEnabled) {
+        enable();
+    }
 }
 
 export function deactivate() {
+    disable();
+}
+
+function enable() {
+    enabled = true;
+    onDidChangeConfiguration();
+}
+
+function disable() {
+    enabled = false;
     if (styleMeter) {
         styleMeter.dispose();
     }
 }
 
 function onDidChangeConfiguration() {
+    if (!enabled) {
+        return;
+    }
+
     // dispose of previous configured instance
     if (styleMeter) {
         styleMeter.dispose();

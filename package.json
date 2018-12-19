@@ -28,6 +28,18 @@
     ],
     "main": "./out/extension",
     "contributes": {
+        "commands": [
+            {
+                "command": "styleMeter.enable",
+                "title": "Enable",
+                "category": "Style Meter"
+            },
+            {
+                "command": "styleMeter.disable",
+                "title": "Disable",
+                "category": "Style Meter"
+            }
+        ],
         "configuration": {
             "type": "object",
             "title": "Style Meter",
@@ -66,6 +78,11 @@
                     "type": "number",
                     "default": 20,
                     "description": "Sets a special value for a hack to adjust rank text alignment."
+                },
+                "styleMeter.defaultEnabled": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable the style meter on start-up."
                 }
             }
         }

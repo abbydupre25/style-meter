@@ -37,49 +37,77 @@ export interface StyleMeterConfig {
     maxVolume: number;
 }
 
-export const defaultStyleMeterConfig = {
+export const defaultStyleMeterConfig: StyleMeterConfig = {
     ranks: [
         {
             text: 'D',
             smallText: 'ope!',
             score: 10,
-            color: '#89a7a7',
+            color: {
+                h: 180,
+                s: 30,
+                l: 65
+            },
         },
         {
             text: 'C',
             smallText: 'razy!',
             score: 20,
-            color: '#b3cdc0',
+            color: {
+                h: 150,
+                s: 30,
+                l: 70
+            },
         },
         {
             text: 'B',
             smallText: 'last!',
             score: 30,
-            color: '#aeb295',
+            color: {
+                h: 68,
+                s: 30,
+                l: 70
+            },
         },
         {
             text: 'A',
             smallText: 'lright!',
             score: 40,
-            color: '#caad9a',
+            color: {
+                h: 23,
+                s: 35,
+                l: 70
+            },
         },
         {
             text: 'S',
             smallText: 'weet!',
             score: 50,
-            color: '#b2889e',
+            color: {
+                h: 47,
+                s: 35,
+                l: 75
+            },
         },
         {
             text: 'SS',
             smallText: 'howtime!!',
             score: 60,
-            color: '#d4b7d6',
+            color: {
+                h: 296,
+                s: 35,
+                l: 80
+            }
         },
         {
             text: 'SSS',
             smallText: 'tylish!!!',
             score: 70,
-            color: '#ffb9c6',
+            color: {
+                h: 348,
+                s: 100,
+                l: 85
+            }
         },
     ],
 

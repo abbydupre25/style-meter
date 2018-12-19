@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { RankChangeEvent, ScoreChangeEvent } from './score-keeper';
 import { StyleMeterConfig } from './config';
 import { ScoreKeeper } from './score-keeper';
+import { RankColor } from './rank';
 
 const pixelWidth = require('string-pixel-width');
 
@@ -13,6 +14,45 @@ const RANK_TEXT_TIMEOUT_MS = 1000;
 
 const METER_MIN_WIDTH_PX = 20;
 const METER_MIN_HEIGHT_PX = 3;
+
+/**
+ * The hsl color of the style meter at the start of a rank score threshold.
+ */
+const METER_COLOR_START: RankColor = {
+    h: 15,
+    s: 100,
+    l: 51
+};
+
+/**
+ * The hsl color of the style meter at the end of a rank score threshold.
+ */
+const METER_COLOR_END: RankColor = {
+    h: 60,
+    s: 84,
+    l: 74
+};
+
+
+function _getCssColor(color: RankColor): string {
+    return `hsl(${Math.round(color.h)}, ${Math.round(color.s)}\%, ${Math.round(color.l)}\%)`;
+}
+
+
+/**
+ * Get a color that is `progress`% between `start` and `end`.
+ * 
+ * @param start an hsl color
+ * @param end an hsl color
+ * @param progress the percentage between start and end to get
+ */
+function _getGradient(start: RankColor, end: RankColor, progress: number): RankColor {
+    return {
+        h: (start.h + progress * (end.h - start.h)) % 360,
+        s: start.s + progress * (end.s - start.s),
+        l: start.l + progress * (end.l - start.l)
+    };
+}
 
 
 class ReplaceableDecoration {
@@ -68,15 +108,15 @@ export class RankDecorator {
         config.ranks.forEach(rank => {
             const letterWidth = pixelWidth(rank.text, {
                 font: config.rankFont,
-                italic: true,
                 size: config.rankLetterFontSizePx
             });
             this._rankLetterPixelWidths.push(letterWidth);
 
             const textWidth = pixelWidth(rank.smallText, {
                 font: config.rankFont,
-                italic: true,
-                size: config.rankTextFontSizePx
+                size: config.rankTextFontSizePx,
+                bold: true,
+                italic: true
             });
             const fullWidth = textWidth + letterWidth;
             if (fullWidth > maxRankFullWidth) {
@@ -110,6 +150,8 @@ export class RankDecorator {
             font-size: ${config.rankLetterFontSizePx}px;
             font-style: italic;
             font-family: serif;
+            font-weight: bold;
+            text-shadow: 1px 1px 10px;
             vertical-align: middle;
             line-height: normal;
         `;
@@ -122,6 +164,8 @@ export class RankDecorator {
             font-size: ${config.rankTextFontSizePx}px;
             font-style: italic;
             font-family: serif;
+            font-weight: bold;
+            text-shadow: 1px 1px 8px;
             vertical-align: middle;
             line-height: normal;
         `;
@@ -162,7 +206,7 @@ export class RankDecorator {
             before: {
                 textDecoration: this._rankLetterCss,
                 contentText: rank.text,
-                color: rank.color,
+                color: _getCssColor(rank.color),
             },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
@@ -172,11 +216,12 @@ export class RankDecorator {
         const rank = this.config.ranks[rankIndex];
         const width = this._rankFullWidth - this._rankLetterPixelWidths[rankIndex];
         const top = this._rankTextTopMargin + shift;
+        const color = _getGradient(rank.color, {h: rank.color.h, s: rank.color.s, l: 0}, .3);
         return vscode.window.createTextEditorDecorationType({
             before: {
                 textDecoration: `${this._rankTextCss} width: ${width}px; top: ${top}px`,
                 contentText: rank.smallText,
-                color: rank.color,
+                color: _getCssColor(color),
             },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
@@ -200,29 +245,22 @@ export class RankDecorator {
         const rightMargin = this._rankFullWidth - width;
 
         // transition from red to orange
-        const red = 163 + progress * (178 - 163);
-        const green = 53 + progress * (125 - 53);
-        const blue = 57 + progress * (64 - 57);
-        const color = this._getCssColor(red, green, blue);
-        const borderColor = this._getCssColor(red * 1.2, green * 1.2, blue * 1.2);
+        const color = _getGradient(METER_COLOR_START, METER_COLOR_END, progress);
+        const borderColor = _getGradient(color, {h: color.h, s: color.s, l: 100}, .5);
     
         return vscode.window.createTextEditorDecorationType({
             // this is on 'after' because weird overlapping happens if they're both on 'before'
             after: {
                 textDecoration: `${this._meterCss}
                     right: ${rightMargin}px;
-                    border-right: 4px solid ${borderColor};
+                    border-right: 4px solid ${_getCssColor(borderColor)};
                     border-radius: 2px;`,
                 contentText: '',
-                backgroundColor: color,
+                backgroundColor: _getCssColor(color),
                 width: `${width}px`,
             },
             rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
         });
-    }
-
-    private _getCssColor(red: number, green: number, blue: number): string {
-        return `rgb(${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)})`;
     }
 
     private _updateRankDecoration(event: RankChangeEvent) {

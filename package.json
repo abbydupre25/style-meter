@@ -2,7 +2,7 @@
     "name": "style-meter",
     "displayName": "Style Meter",
     "description": "Add an action game style meter to to VSCode that gives you a higher rank as you type.",
-    "version": "0.0.1",
+    "version": "1.0.0",
     "publisher": "djdupre",
     "author": {
         "name": "David Dupre",
